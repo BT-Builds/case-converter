@@ -33,3 +33,7 @@ curl -X POST https://case-converter.vercel.app/convert \
 
 - Free: 100 requests/day
 - Pro: $19/month - 10,000 requests/day
+
+
+## Postman
+[![Run in Postman](https://run.pstmn.io/button.svg)](https://raw.githubusercontent.com/BT-Builds/case-converter/main/postman_collection.json)
