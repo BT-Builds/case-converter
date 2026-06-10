@@ -73,6 +73,29 @@ def pascal_to_kebab(name: str) -> str:
 def kebab_to_pascal(name: str) -> str:
     return snake_to_pascal(kebab_to_snake(name))
 
+# Conversion registry
+CONVERSIONS = {
+    ("camel", "snake"): camel_to_snake,
+    ("snake", "camel"): snake_to_camel,
+    ("camel", "pascal"): camel_to_pascal,
+    ("pascal", "camel"): pascal_to_camel,
+    ("snake", "pascal"): snake_to_pascal,
+    ("pascal", "snake"): pascal_to_snake,
+    ("kebab", "snake"): kebab_to_snake,
+    ("snake", "kebab"): snake_to_kebab,
+    ("camel", "kebab"): camel_to_kebab,
+    ("kebab", "camel"): kebab_to_camel,
+    ("pascal", "kebab"): pascal_to_kebab,
+    ("kebab", "pascal"): kebab_to_pascal,
+}
+
+def perform_conversion(text: str, from_case: str, to_case: str) -> tuple[str, str]:
+    """Core conversion logic - returns (output, error) tuple."""
+    key = (from_case.lower(), to_case.lower())
+    if key not in CONVERSIONS:
+        return "", f"Unsupported conversion: {from_case} -> {to_case}"
+    return CONVERSIONS[key](text), ""
+
 class ConvertRequest(BaseModel):
     text: str
     from_case: str
@@ -84,33 +107,42 @@ class ConvertResponse(BaseModel):
     from_case: str
     to_case: str
 
+class BulkConvertRequest(BaseModel):
+    items: list[ConvertRequest]
+
+class BulkConvertResponse(BaseModel):
+    results: list[dict]
+    total: int
+    successful: int
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
 @app.post("/convert")
 def convert(req: ConvertRequest, api_key: str = Depends(rate_limit)):
-    conversions = {
-        ("camel", "snake"): camel_to_snake,
-        ("snake", "camel"): snake_to_camel,
-        ("camel", "pascal"): camel_to_pascal,
-        ("pascal", "camel"): pascal_to_camel,
-        ("snake", "pascal"): snake_to_pascal,
-        ("pascal", "snake"): pascal_to_snake,
-        ("kebab", "snake"): kebab_to_snake,
-        ("snake", "kebab"): snake_to_kebab,
-        ("camel", "kebab"): camel_to_kebab,
-        ("kebab", "camel"): kebab_to_camel,
-        ("pascal", "kebab"): pascal_to_kebab,
-        ("kebab", "pascal"): kebab_to_pascal,
-    }
-    
-    key = (req.from_case.lower(), req.to_case.lower())
-    if key not in conversions:
-        raise HTTPException(status_code=400, detail=f"Unsupported conversion: {req.from_case} -> {req.to_case}")
-    
-    output = conversions[key](req.text)
+    output, error = perform_conversion(req.text, req.from_case, req.to_case)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
     return ConvertResponse(input=req.text, output=output, from_case=req.from_case, to_case=req.to_case)
+
+@app.post("/bulk/convert")
+def bulk_convert(req: BulkConvertRequest, api_key: str = Depends(rate_limit)):
+    if len(req.items) > 1000:
+        raise HTTPException(status_code=400, detail="Maximum 1000 items per request")
+    
+    results = []
+    successful = 0
+    
+    for item in req.items:
+        output, error = perform_conversion(item.text, item.from_case, item.to_case)
+        if error:
+            results.append({"input": item.text, "output": None, "error": error})
+        else:
+            results.append({"input": item.text, "output": output, "error": None})
+            successful += 1
+    
+    return BulkConvertResponse(results=results, total=len(req.items), successful=successful)
 
 @app.get("/convert")
 def convert_get(text: str, from_case: str, to_case: str, api_key: str = Depends(rate_limit)):
@@ -119,7 +151,6 @@ def convert_get(text: str, from_case: str, to_case: str, api_key: str = Depends(
 @app.get("/cases")
 def list_cases():
     return {"cases": ["camel", "snake", "pascal", "kebab"]}
-
 
 try:
     from mangum import Mangum
